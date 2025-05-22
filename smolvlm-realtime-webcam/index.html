@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealTime LLM Vision</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+        body {
+            background-color: #000;
+            transition: background-color 0.3s ease, color 0.3s ease;
+            overflow: hidden;
+        }
+        body.dark-mode {
+            background-color: #000;
+            color: #e0e0e0;
+        }
+        .fullscreen-camera {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #videoFeed {
+            width: 20%;
+            height: 50%;
+            object-fit: cover;
+            margin-left: 200px;
+            margin-top: 100px;
+        }
+        .floating-panel {
+            position: absolute;
+            top: 50%;
+            right: 30px;
+            transform: translateY(-50%);
+            width: 50%;
+            height: 90vh;
+            max-width: 90%;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+        }
+        .card {
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .dark-mode .card {
+            background-color: rgba(30, 30, 30, 0.7);
+            color: #e0e0e0;
+        }
+        .dark-mode .card-body {
+            background-color: rgba(30, 30, 30, 0.7);
+            color: #e0e0e0;
+        }
+        textarea {
+            resize: none;
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+        .dark-mode textarea, .dark-mode input, .dark-mode select, .dark-mode .form-control {
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border-color: #444;
+        }
+        .dark-mode .input-group-text {
+            background-color: #333;
+            color: #e0e0e0;
+            border-color: #444;
+        }
+        .dark-mode .bg-light {
+            background-color: #1e1e1e !important;
+            color: #e0e0e0;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-active {
+            background-color: #28a745;
+            animation: pulse 2s infinite;
+        }
+        .status-inactive {
+            background-color: #dc3545;
+        }
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+        .hidden {
+            display: none;
+        }
+        .controls-section {
+            margin-top: auto;
+        }
+        .theme-switch {
+            position: fixed;
+            bottom: 15px;
+            left: 25px;
+            z-index: 1030;
+            display: flex;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 5px 10px;
+            border-radius: 30px;
+        }
+        .theme-switch .form-check-input {
+            height: 1.25rem;
+            width: 2.5rem;
+            cursor: pointer;
+        }
+        .theme-icon {
+            margin-left: 5px;
+            font-size: 1.2rem;
+        }
+        .response-highlight {
+            box-shadow: 0 0 10px rgba(13, 110, 253, 0.5);
+            animation: highlight-pulse 2s infinite;
+        }
+        @keyframes highlight-pulse {
+            0% { box-shadow: 0 0 10px rgba(13, 110, 253, 0.3); }
+            50% { box-shadow: 0 0 20px rgba(13, 110, 253, 0.6); }
+            100% { box-shadow: 0 0 10px rgba(13, 110, 253, 0.3); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Theme Switch -->
+    <div class="theme-switch">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="darkModeToggle">
+            <label class="form-check-label text-white" for="darkModeToggle">
+                <span id="themeIcon">🌞</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="container-fluid p-0 h-100 position-relative">
+        <!-- Full Screen Camera Feed -->
+        <div class="fullscreen-camera">
+            <video id="videoFeed" autoplay playsinline></video>
+            <canvas id="canvas" class="hidden"></canvas> <!-- For capturing frames -->
+        </div>
+        
+        <!-- Floating Controls Panel -->
+        <div class="floating-panel">
+            <div class="card bg-dark bg-opacity-75 text-white h-100 d-flex flex-column">
+                <div class="card-header bg-dark d-flex justify-content-between align-items-center">
+                    <div>
+                        <h4 class="mb-0">RealTime LLM Vision</h4>
+                        <small class="text-light opacity-75">Using model: llama-server -hf ggml-org/SmolVLM-500M-Instruct-GGUF</small>
+                    </div>
+                    <div>
+                        <span id="statusIndicator" class="status-indicator status-inactive"></span>
+                        <span id="statusText">Inactive</span>
+                    </div>
+                </div>
+                <div class="card-body d-flex flex-column flex-grow-1">
+                    <!-- API Configuration -->
+                    <div class="mb-3">
+                        <label for="baseURL" class="form-label fw-bold">Base API URL:</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-dark text-light border-secondary"><i class="bi bi-link-45deg"></i></span>
+                            <input type="text" class="form-control bg-dark text-light border-secondary" id="baseURL" value="http://localhost:8080">
+                        </div>
+                    </div>
+                    
+                    <!-- Instruction Input -->
+                    <div class="mb-3">
+                        <label for="instructionText" class="form-label fw-bold">Instruction:</label>
+                        <textarea id="instructionText" class="form-control bg-dark text-light border-secondary" rows="3"></textarea>
+                    </div>
+                    
+                    <!-- Response Output -->
+                    <div class="mb-3 flex-grow-1 d-flex flex-column">
+                        <label for="responseText" class="form-label fw-bold">
+                            <span class="badge bg-primary me-1">I See...</span>Response:
+                        </label>
+                        <div class="position-relative flex-grow-1 d-flex">
+                            <textarea id="responseText" class="form-control bg-dark text-light border-primary border-2 response-highlight" style="flex: 1 1 auto;" readonly placeholder="Server response will appear here..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <!-- Controls Section -->
+                    <div class="controls-section mt-3">
+                        <div class="card bg-dark bg-opacity-75 border-secondary">
+                            <div class="card-body">
+                                <div class="row align-items-center">
+                                    <div class="col-md-5">
+                                        <label for="intervalSelect" class="form-label mb-0 text-light">Interval:</label>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <select id="intervalSelect" class="form-select bg-dark text-light border-secondary">
+                                            <option value="100">100ms</option>
+                                            <option value="250">250ms</option>
+                                            <option value="500" selected>500ms</option>
+                                            <option value="1000">1s</option>
+                                            <option value="2000">2s</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 text-end">
+                                        <button id="startButton" class="btn btn-success w-100">Start</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const video = document.getElementById('videoFeed');
+        const canvas = document.getElementById('canvas');
+        const baseURL = document.getElementById('baseURL');
+        const instructionText = document.getElementById('instructionText');
+        const responseText = document.getElementById('responseText');
+        const intervalSelect = document.getElementById('intervalSelect');
+        const startButton = document.getElementById('startButton');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const darkModeToggle = document.getElementById('darkModeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+
+        instructionText.value = "What do you see?"; // default instruction
+
+        let stream;
+        let intervalId;
+        let isProcessing = false;
+
+        // Returns response text (string)
+        async function sendChatCompletionRequest(instruction, imageBase64URL) {
+            const response = await fetch(`${baseURL.value}/v1/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    max_tokens: 100,
+                    messages: [
+                        { role: 'user', content: [
+                            { type: 'text', text: instruction },
+                            { type: 'image_url', image_url: {
+                                url: imageBase64URL,
+                            } }
+                        ] },
+                    ]
+                })
+            });
+            if (!response.ok) {
+                const errorData = await response.text();
+                return `Server error: ${response.status} - ${errorData}`;
+            }
+            const data = await response.json();
+            return data.choices[0].message.content;
+        }
+
+        // 1. Ask for camera permission on load
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                responseText.value = "Camera access granted. Ready to start.";
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                responseText.value = `Error accessing camera: ${err.name} - ${err.message}. Please ensure permissions are granted and you are on HTTPS or localhost.`;
+                alert(`Error accessing camera: ${err.name}. Make sure you've granted permission and are on HTTPS or localhost.`);
+            }
+        }
+
+        function captureImage() {
+            if (!stream || !video.videoWidth) {
+                console.warn("Video stream not ready for capture.");
+                return null;
+            }
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL('image/jpeg', 0.8); // Use JPEG for smaller size, 0.8 quality
+        }
+
+        async function sendData() {
+            if (!isProcessing) return; // Ensure we don't have overlapping requests if processing takes longer than interval
+
+            const instruction = instructionText.value;
+            const imageBase64URL = captureImage();
+
+            if (!imageBase64URL) {
+                responseText.value = "Failed to capture image. Stream might not be active.";
+                // Optionally stop processing if image capture fails consistently
+                // handleStop();
+                return;
+            }
+
+            const payload = {
+                instruction: instruction,
+                imageBase64URL: imageBase64URL
+            };
+
+            try {
+                const response = await sendChatCompletionRequest(payload.instruction, payload.imageBase64URL);
+                responseText.value = response;
+            } catch (error) {
+                console.error('Error sending data:', error);
+                responseText.value = `Error: ${error.message}`;
+            }
+        }
+
+        function handleStart() {
+            if (!stream) {
+                responseText.value = "Camera not available. Cannot start.";
+                alert("Camera not available. Please grant permission first.");
+                return;
+            }
+            isProcessing = true;
+            startButton.textContent = "Stop";
+            startButton.classList.remove('btn-success');
+            startButton.classList.add('btn-danger');
+            
+            // Update status indicator
+            statusIndicator.classList.remove('status-inactive');
+            statusIndicator.classList.add('status-active');
+            statusText.textContent = "Active";
+
+            instructionText.disabled = true;
+            intervalSelect.disabled = true;
+
+            responseText.value = "Processing started...";
+
+            const intervalMs = parseInt(intervalSelect.value, 10);
+            
+            // Initial immediate call
+            sendData(); 
+            
+            // Then set interval
+            intervalId = setInterval(sendData, intervalMs);
+        }
+
+        function handleStop() {
+            isProcessing = false;
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+            }
+            startButton.textContent = "Start";
+            startButton.classList.remove('btn-danger');
+            startButton.classList.add('btn-success');
+            
+            // Update status indicator
+            statusIndicator.classList.remove('status-active');
+            statusIndicator.classList.add('status-inactive');
+            statusText.textContent = "Inactive";
+
+            instructionText.disabled = false;
+            intervalSelect.disabled = false;
+            if (responseText.value.startsWith("Processing")) {
+                responseText.value = "Processing stopped.";
+            }
+        }
+
+        startButton.addEventListener('click', () => {
+            if (isProcessing) {
+                handleStop();
+            } else {
+                handleStart();
+            }
+        });
+
+        // Dark mode toggle functionality
+        function toggleDarkMode() {
+            const isDarkMode = darkModeToggle.checked;
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            themeIcon.textContent = isDarkMode ? '🌙' : '🌞';
+            
+            // Save preference to localStorage
+            localStorage.setItem('darkMode', isDarkMode ? 'enabled' : 'disabled');
+        }
+
+        // Check for saved theme preference and apply it
+        function applyThemePreference() {
+            const savedTheme = localStorage.getItem('darkMode');
+            if (savedTheme === 'enabled') {
+                darkModeToggle.checked = true;
+                document.body.classList.add('dark-mode');
+                themeIcon.textContent = '🌙';
+            }
+        }
+
+        // Event listener for dark mode toggle
+        darkModeToggle.addEventListener('change', toggleDarkMode);
+
+        // Initialize camera when the page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            initCamera();
+            applyThemePreference();
+        });
+
+        // Optional: Stop stream when page is closed/navigated away to release camera
+        window.addEventListener('beforeunload', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
+        });
+    </script>
+</body>
+</html>
