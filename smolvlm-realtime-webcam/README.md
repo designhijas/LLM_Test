@@ -2,8 +2,6 @@
 
 A web application that uses SmolVLM to perform real-time vision analysis through your webcam.
 
-![demo](./demo.png)
-
 ## Overview
 
 This repository demonstrates how to use llama.cpp server with SmolVLM 500M to get real-time vision capabilities through your webcam. The application captures frames from your webcam at specified intervals and sends them to a SmolVLM server for analysis, displaying the AI's response in real-time.
